@@ -100,15 +100,28 @@ adivinanza.
 # Entrega principal (uiautomation)
 git checkout main
 pdm install
-pdm run bot          # Casos 01 y 02
 pdm run test         # Pruebas unitarias
+pdm run reset        # Estado inicial de los casos
+pdm run bot          # Casos 01 y 02: crea el destino
+pdm run bot          # Repetido: ejercita el reemplazo
 
 # Entrega alterna (pywinauto)
 git checkout impl/pywinauto
 pdm install
-pdm run bot
 pdm run test
+pdm run reset
+pdm run bot
+pdm run bot
 ```
+
+`pdm install` es obligatorio al cambiar de rama, porque la dependencia declarada
+cambia con ella.
+
+`pdm run reset` importa: la presencia de `.data/output/destino.xlsx` determina
+cuál de las dos ramas del Caso 02 se ejercita. Sin borrarlo, la corrida siempre
+pasa por el reemplazo y nunca se prueba la creación del destino. Acepta
+`--dry-run` para enumerar sin borrar y `--kill-excel` para cerrar Excel cuando
+mantiene el destino bloqueado.
 
 ## 5. Diferencias reales encontradas al portar
 
