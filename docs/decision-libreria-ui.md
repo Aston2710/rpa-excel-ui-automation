@@ -110,7 +110,55 @@ pdm run bot
 pdm run test
 ```
 
-## 5. Nota adicional sobre el flujo de apertura
+## 5. Diferencias reales encontradas al portar
+
+El port no fue una traducción mecánica. Tres comportamientos de pywinauto
+obligaron a endurecer los selectores; los tres están cubiertos por pruebas
+unitarias en la rama `impl/pywinauto`.
+
+### 5.1 `auto_id="1"` colisiona con los archivos de la carpeta
+
+El explorador numera los elementos de la carpeta que está mostrando con
+`AutomationId` correlativos `"0"`, `"1"`, `"2"`… El botón de confirmación
+también tiene `AutomationId="1"`, así que la búsqueda encuentra dos elementos y
+pywinauto aborta con `ElementAmbiguousError`:
+
+```
+ElementAmbiguousError: There are 2 elements that match the criteria {'auto_id': '1', ...}
+   type='ListItem'    class='UIItem'  name='bovedas'
+   type='SplitButton' class='Button'  name='Abrir'
+```
+
+Es un fallo **dependiente del entorno**: aparece solo si la carpeta mostrada
+tiene al menos dos entradas. `uiautomation` no lo manifiesta porque devuelve la
+primera coincidencia en lugar de fallar, lo que en la práctica es peor: podría
+accionar el archivo equivocado en silencio.
+
+Solución: desambiguar por `class_name="Button"`. No sirve `control_type`, que es
+`SplitButton` en "Abrir" y `Button` en "Guardar como".
+
+### 5.2 `class_name="#32770"` deja de ser único al aparecer la advertencia
+
+Mientras la advertencia de sobreescritura está abierta, Excel tiene dos ventanas
+de clase `#32770`, y la especificación del diálogo "Guardar como" —creada antes
+de que existiera la advertencia— pasa a ser ambigua al resolverse.
+
+Solución: al detectar el diálogo se lee su título en ejecución y se reconstruye
+la especificación incluyéndolo. El título no se codifica en el programa, se
+observa, así que el criterio sigue siendo independiente del idioma de Office.
+
+Se descartó anclar la especificación al `handle` de la ventana: al destruirse el
+diálogo, `ElementFromHandle` lanza `COMError` en lugar de reportar su ausencia,
+lo que rompe la espera de cierre con `wait_not("exists")`.
+
+### 5.3 El parámetro `depth` no restringe a los hijos directos
+
+`find_elements(parent=..., depth=1)` devuelve el árbol completo de descendientes
+aplanado (55 elementos en el diálogo "Abrir"), no los hijos inmediatos. No sirve
+como criterio de desambiguación; por eso la unicidad se logra por `class_name` o
+por título.
+
+## 6. Nota adicional sobre el flujo de apertura
 
 Independiente de la librería, el cuadro de diálogo "Abrir" se invoca con el
 atajo global `Ctrl+F12` y no navegando el Backstage (Archivo → Abrir →
