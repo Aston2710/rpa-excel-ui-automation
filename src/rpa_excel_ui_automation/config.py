@@ -66,6 +66,21 @@ FILE_NAME_EDIT_IDS = ("1148", "1001")
 ACCEPT_BUTTON_ID = "1"
 """`AutomationId` del boton de confirmacion (Abrir / Guardar)."""
 
+ACCEPT_BUTTON_CLASS = "Button"
+"""Clase del boton de confirmacion, para que el selector no dependa del alcance.
+
+El explorador numera los elementos de la carpeta mostrada con `AutomationId`
+correlativos ("0", "1", "2", ...), de modo que `AutomationId="1"` tambien
+identifica al segundo archivo de la lista, aunque a profundidad 6. Buscar solo
+entre los hijos directos ya lo excluye, pero el `ListItem` aparece antes en el
+orden de recorrido: si el alcance se ampliara, la busqueda devolveria el archivo
+en lugar del boton sin emitir ningun error. La pareja (AutomationId, ClassName)
+es univoca a cualquier profundidad, porque la clase del archivo es `UIItem`.
+
+El `ControlType` no sirve para esto: es `SplitButton` en "Abrir" y `Button` en
+"Guardar como".
+"""
+
 DIALOG_SEARCH_DEPTH = 8
 """Profundidad maxima al buscar controles dentro de un dialogo."""
 

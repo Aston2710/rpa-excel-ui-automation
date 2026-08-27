@@ -62,10 +62,38 @@ def test_open_document_falla_sin_campo_de_texto(explorer, tmp_path):
     source = tmp_path / "origen.xlsx"
     source.write_bytes(b"contenido")
     dialog = make("Window", name="Abrir")
-    dialog.add(make("Control", name="Abrir", automation_id="1"))
+    dialog.add(make("Control", name="Abrir", automation_id="1", class_name="Button"))
 
     with pytest.raises(DialogControlNotFoundError):
         explorer.open_document(dialog, source)
+
+
+def test_el_boton_de_confirmacion_no_se_confunde_con_un_archivo_de_la_carpeta(
+    explorer, tmp_path
+):
+    """El explorador numera los elementos listados con AutomationId "0", "1"...
+
+    El segundo archivo de la carpeta comparte el `AutomationId` del boton de
+    confirmacion y aparece antes en el orden de recorrido, asi que sin filtrar
+    por `ClassName` la busqueda podria accionar el archivo equivocado.
+    """
+    source = tmp_path / "origen.xlsx"
+    source.write_bytes(b"contenido")
+
+    dialog = make("Window", name="Abrir")
+    dialog.add(make("Edit", automation_id="1148", patterns=(auto.PatternId.ValuePattern,)))
+    homonimo = dialog.add(
+        make("Control", name="bovedas", automation_id="1", class_name="UIItem")
+    )
+    boton = dialog.add(
+        make("Control", name="Abrir", automation_id="1", class_name="Button")
+    )
+    dialog.disappeared = True
+
+    explorer.open_document(dialog, source)
+
+    assert boton.invocations == ["Invoke"]
+    assert homonimo.invocations == []
 
 
 # --- Caso 02 ---------------------------------------------------------------

@@ -120,7 +120,7 @@ def open_dialog() -> FakeControl:
     dialog.add(
         make("Edit", automation_id="1148", patterns=(auto.PatternId.ValuePattern,))
     )
-    dialog.add(make("Control", name="Abrir", automation_id="1"))
+    dialog.add(make("Control", name="Abrir", automation_id="1", class_name="Button"))
     dialog.disappeared = True
     return dialog
 
@@ -132,6 +132,6 @@ def save_dialog() -> FakeControl:
     dialog.add(
         make("Edit", automation_id="1001", patterns=(auto.PatternId.ValuePattern,))
     )
-    dialog.add(make("Control", name="Guardar", automation_id="1"))
+    dialog.add(make("Control", name="Guardar", automation_id="1", class_name="Button"))
     dialog.disappeared = True
     return dialog

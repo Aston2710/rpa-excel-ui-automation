@@ -114,12 +114,22 @@ class FileExplorer:
         )
 
     def _accept(self, dialog: auto.WindowControl) -> None:
-        """Acciona el boton de confirmacion (Abrir / Guardar) del dialogo."""
-        button = dialog.Control(searchDepth=1, AutomationId=config.ACCEPT_BUTTON_ID)
+        """Acciona el boton de confirmacion (Abrir / Guardar) del dialogo.
+
+        Se filtra tambien por `ClassName` para que el selector siga siendo
+        univoco al margen del alcance de la busqueda: el `AutomationId` por si
+        solo colisiona con los elementos de la carpeta listada.
+        """
+        button = dialog.Control(
+            searchDepth=1,
+            AutomationId=config.ACCEPT_BUTTON_ID,
+            ClassName=config.ACCEPT_BUTTON_CLASS,
+        )
         if not button.Exists(self._dialog_timeout, config.POLL_INTERVAL):
             raise DialogControlNotFoundError(
-                f"El boton de confirmacion (AutomationId={config.ACCEPT_BUTTON_ID}) "
-                f"no existe en el dialogo {dialog.Name!r}."
+                f"El boton de confirmacion (AutomationId={config.ACCEPT_BUTTON_ID}, "
+                f"ClassName={config.ACCEPT_BUTTON_CLASS}) no existe en el dialogo "
+                f"{dialog.Name!r}."
             )
 
         logger.info("Accionando el boton %r del dialogo %r", button.Name, dialog.Name)
