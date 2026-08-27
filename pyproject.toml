@@ -21,6 +21,7 @@ distribution = true
 [tool.pdm.scripts]
 bot = "python -m rpa_excel_ui_automation"
 test = "pytest -q"
+reset = "python scripts/reset_environment.py"
 
 [dependency-groups]
 dev = [
