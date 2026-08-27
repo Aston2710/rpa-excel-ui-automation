@@ -130,12 +130,29 @@ ElementAmbiguousError: There are 2 elements that match the criteria {'auto_id': 
 ```
 
 Es un fallo **dependiente del entorno**: aparece solo si la carpeta mostrada
-tiene al menos dos entradas. `uiautomation` no lo manifiesta porque devuelve la
-primera coincidencia en lugar de fallar, lo que en la práctica es peor: podría
-accionar el archivo equivocado en silencio.
+tiene al menos dos entradas.
 
-Solución: desambiguar por `class_name="Button"`. No sirve `control_type`, que es
-`SplitButton` en "Abrir" y `Button` en "Guardar como".
+La rama `main` no presentaba este fallo. El parámetro `searchDepth` de
+`uiautomation` sí restringe la profundidad de la búsqueda, y el botón está entre
+los hijos directos del diálogo mientras que el archivo homónimo queda a
+profundidad 6, fuera del alcance. Se comprobó ejecutando el bot y contando las
+coincidencias:
+
+```
+AutomationId='1' con searchDepth=1: 1
+    depth=1 <SplitButtonControl> ClassName='Button' Name='Abrir'
+AutomationId='1' con searchDepth=8: 2
+    depth=6 <ListItemControl>     ClassName='UIItem' Name='bovedas'
+    depth=1 <SplitButtonControl>  ClassName='Button' Name='Abrir'
+```
+
+Sí quedaba una fragilidad latente: el `ListItem` aparece **antes** en el orden de
+recorrido, de modo que ampliar el alcance de la búsqueda haría que
+`uiautomation` devolviera el archivo en lugar del botón sin emitir ningún error.
+
+Solución, aplicada en ambas ramas: desambiguar por `class_name="Button"`, que es
+único a cualquier profundidad porque la clase del archivo es `UIItem`. No sirve
+`control_type`, que es `SplitButton` en "Abrir" y `Button` en "Guardar como".
 
 ### 5.2 `class_name="#32770"` deja de ser único al aparecer la advertencia
 
