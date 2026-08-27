@@ -1,137 +1,134 @@
-"""Dobles de prueba que emulan los controles de UI Automation.
+﻿"""Dobles de prueba que emulan las especificaciones de ventana de pywinauto.
 
-Permiten ejercitar la logica de `FileExplorer` sin abrir Microsoft Excel:
-solo se reproduce el contrato que la clase realmente consume (`Exists`,
-`Disappears`, `GetPattern` y los constructores de controles hijos).
+Permiten ejercitar la logica de `FileExplorer` sin abrir Microsoft Excel: solo
+se reproduce el contrato que la clase realmente consume (`exists`, `wait_not`,
+`child_window`, `wrapper_object` y los metodos de accion del envoltorio).
 """
 
 from __future__ import annotations
 
 import pytest
-import uiautomation as auto
+from pywinauto.timings import TimeoutError as WaitTimeoutError
+from pywinauto.uia_defines import NoPatternInterfaceError
+
+CRITERIA = ("auto_id", "control_type", "class_name", "title")
 
 
-class FakePattern:
-    """Registra las acciones invocadas sobre un control."""
+class FakeElementInfo:
+    def __init__(self, automation_id: str) -> None:
+        self.automation_id = automation_id
 
-    def __init__(self, control: "FakeControl") -> None:
+
+class FakeLegacyInterface:
+    def __init__(self, control: "FakeSpec") -> None:
         self._control = control
-        self.Value = ""
-
-    def Invoke(self) -> None:
-        self._control.invocations.append("Invoke")
-
-    def Select(self) -> None:
-        self._control.invocations.append("Select")
 
     def DoDefaultAction(self) -> None:
         self._control.invocations.append("DoDefaultAction")
 
-    def SetValue(self, value: str) -> None:
-        self.Value = value
-        self._control.invocations.append(f"SetValue:{value}")
 
+class FakeSpec:
+    """Doble que actua a la vez como `WindowSpecification` y como envoltorio.
 
-class FakeControl:
-    """Control minimo compatible con el uso que hace `FileExplorer`."""
+    `wrapper_object()` devuelve el propio objeto, igual que ocurre en la
+    practica cuando la especificacion ya resolvio un unico control.
+    """
 
     def __init__(
         self,
-        name: str = "",
-        automation_id: str = "",
+        title: str = "",
+        auto_id: str = "",
         class_name: str = "",
+        control_type: str = "",
         exists: bool = True,
-        patterns: tuple[int, ...] = (auto.PatternId.InvokePattern,),
+        patterns: tuple[str, ...] = ("invoke",),
     ) -> None:
-        self.Name = name
-        self.AutomationId = automation_id
-        self.ClassName = class_name
+        self.title = title
+        self.auto_id = auto_id
+        self.class_name = class_name
+        self.control_type = control_type
+        self.element_info = FakeElementInfo(auto_id)
         self.invocations: list[str] = []
         self.disappeared = False
+        self.value = ""
         self._exists = exists
-        self._patterns = {pattern_id: FakePattern(self) for pattern_id in patterns}
-        self.children: list[FakeControl] = []
+        self._patterns = patterns
+        self.children: list[FakeSpec] = []
 
-    # -- Contrato consumido por FileExplorer --------------------------------
+    # -- Contrato de WindowSpecification ------------------------------------
 
-    def Exists(self, maxSearchSeconds: float = 5, searchIntervalSeconds: float = 0.5) -> bool:
+    def exists(self, timeout: float = 5, retry_interval: float = 0.5) -> bool:
         return self._exists
 
-    def Disappears(self, maxSearchSeconds: float = 5, searchIntervalSeconds: float = 0.5) -> bool:
-        return self.disappeared
+    def wait_not(self, condition: str, timeout: float = 5, retry_interval: float = 0.5) -> None:
+        if not self.disappeared:
+            raise WaitTimeoutError(f"{self.title!r} sigue cumpliendo {condition!r}")
 
-    def GetPattern(self, pattern_id: int) -> FakePattern | None:
-        return self._patterns.get(pattern_id)
+    def window_text(self) -> str:
+        return self.title
 
-    def SetActive(self, waitTime: float = 0) -> bool:
-        self.invocations.append("SetActive")
-        return True
+    def wrapper_object(self) -> "FakeSpec":
+        return self
 
-    def SetFocus(self) -> bool:
-        self.invocations.append("SetFocus")
-        return True
+    def child_window(self, **criteria: object) -> "FakeSpec":
+        wanted = {key: value for key, value in criteria.items() if key in CRITERIA}
+        for child in self.children:
+            if all(getattr(child, key) == value for key, value in wanted.items()):
+                return child
+        return FakeSpec(exists=False)
+
+    # -- Contrato del envoltorio --------------------------------------------
+
+    def set_focus(self) -> "FakeSpec":
+        self.invocations.append("set_focus")
+        return self
+
+    def set_edit_text(self, text: str) -> None:
+        self.value = text
+        self.invocations.append(f"set_edit_text:{text}")
+
+    def get_value(self) -> str:
+        return self.value
+
+    def invoke(self) -> None:
+        self._require("invoke")
+        self.invocations.append("invoke")
+
+    def select(self) -> None:
+        self._require("select")
+        self.invocations.append("select")
+
+    @property
+    def iface_legacy_iaccessible(self) -> FakeLegacyInterface:
+        self._require("legacy")
+        return FakeLegacyInterface(self)
+
+    def _require(self, pattern: str) -> None:
+        if pattern not in self._patterns:
+            raise NoPatternInterfaceError(f"{pattern} no soportado por {self.title!r}")
 
     # -- Utilidades del doble ------------------------------------------------
 
-    def add(self, control: "FakeControl") -> "FakeControl":
-        self.children.append(control)
-        return control
-
-    def _match(self, kind: str, kwargs: dict[str, object]) -> "FakeControl":
-        for child in self.children:
-            if child.kind != kind:
-                continue
-            if all(getattr(child, key, None) == value for key, value in _translate(kwargs).items()):
-                return child
-        return FakeControl(exists=False)
-
-    kind = "Control"
-
-    def Control(self, **kwargs: object) -> "FakeControl":
-        return self._match("Control", kwargs)
-
-    def EditControl(self, **kwargs: object) -> "FakeControl":
-        return self._match("Edit", kwargs)
-
-    def ButtonControl(self, **kwargs: object) -> "FakeControl":
-        return self._match("Button", kwargs)
-
-    def WindowControl(self, **kwargs: object) -> "FakeControl":
-        return self._match("Window", kwargs)
-
-
-def _translate(kwargs: dict[str, object]) -> dict[str, object]:
-    """Traduce los argumentos de busqueda de uiautomation a atributos del doble."""
-    mapping = {"AutomationId": "AutomationId", "Name": "Name", "ClassName": "ClassName"}
-    return {mapping[key]: value for key, value in kwargs.items() if key in mapping}
-
-
-def make(kind: str, **kwargs: object) -> FakeControl:
-    """Crea un `FakeControl` del tipo indicado (Edit, Button, Window, Control)."""
-    control = FakeControl(**kwargs)  # type: ignore[arg-type]
-    control.kind = kind
-    return control
+    def add(self, child: "FakeSpec") -> "FakeSpec":
+        self.children.append(child)
+        return child
 
 
 @pytest.fixture
-def open_dialog() -> FakeControl:
+def open_dialog() -> FakeSpec:
     """Dialogo "Abrir" con su campo de texto y su boton de confirmacion."""
-    dialog = make("Window", name="Abrir")
-    dialog.add(
-        make("Edit", automation_id="1148", patterns=(auto.PatternId.ValuePattern,))
-    )
-    dialog.add(make("Control", name="Abrir", automation_id="1"))
+    dialog = FakeSpec(title="Abrir", class_name="#32770", control_type="Window")
+    dialog.add(FakeSpec(auto_id="1148", control_type="Edit", patterns=()))
+    dialog.add(FakeSpec(title="Abrir", auto_id="1", class_name="Button", control_type="SplitButton"))
     dialog.disappeared = True
     return dialog
 
 
 @pytest.fixture
-def save_dialog() -> FakeControl:
+def save_dialog() -> FakeSpec:
     """Dialogo "Guardar como" sin advertencia de sobreescritura."""
-    dialog = make("Window", name="Guardar como")
-    dialog.add(
-        make("Edit", automation_id="1001", patterns=(auto.PatternId.ValuePattern,))
-    )
-    dialog.add(make("Control", name="Guardar", automation_id="1"))
+    dialog = FakeSpec(title="Guardar como", class_name="#32770", control_type="Window")
+    dialog.add(FakeSpec(auto_id="1001", control_type="Edit", patterns=()))
+    dialog.add(FakeSpec(title="Guardar", auto_id="1", class_name="Button", control_type="Button"))
     dialog.disappeared = True
     return dialog

@@ -5,7 +5,7 @@ description = "Default template for PDM package"
 authors = [
     {name = "merzamac", email = "100945727+merzamac@users.noreply.github.com"},
 ]
-dependencies = ["uiautomation>=2.0.29"]
+dependencies = ["pywinauto>=0.6.9"]
 requires-python = ">=3.12"
 readme = "README.md"
 license = {text = "MIT"}

@@ -7,7 +7,10 @@ import subprocess
 import winreg
 from pathlib import Path
 
-import uiautomation as auto
+from pywinauto import Desktop
+from pywinauto.application import WindowSpecification
+from pywinauto.keyboard import send_keys
+from pywinauto.timings import TimeoutError as WaitTimeoutError
 
 from . import config
 
@@ -39,7 +42,7 @@ class ExcelManager:
         self._executable = executable or self._locate_executable()
         self._app_timeout = app_timeout
         self._dialog_timeout = dialog_timeout
-        self._window: auto.WindowControl | None = None
+        self._window: WindowSpecification | None = None
 
     # -- Propiedades --------------------------------------------------------
 
@@ -49,7 +52,7 @@ class ExcelManager:
         return self._executable
 
     @property
-    def window(self) -> auto.WindowControl:
+    def window(self) -> WindowSpecification:
         """Ventana principal de Excel. Requiere haber llamado a `start()`."""
         if self._window is None:
             raise ExcelNotAvailableError(
@@ -60,27 +63,32 @@ class ExcelManager:
     @property
     def title(self) -> str:
         """Titulo actual de la ventana principal (refleja el libro activo)."""
-        return self.window.Name or ""
+        return self.window.window_text()
 
     # -- Acciones publicas --------------------------------------------------
 
-    def start(self) -> auto.WindowControl:
-        """Inicia Excel y espera a que su ventana principal exista."""
+    def start(self) -> WindowSpecification:
+        """Inicia Excel y espera a que su ventana principal exista.
+
+        Se lanza el proceso y se busca la ventana desde el escritorio en lugar
+        de usar `Application.start()`: Excel delega en la instancia ya abierta
+        cuando existe, y en ese caso el PID lanzado no es el dueno de la ventana.
+        """
         logger.info("Iniciando Excel desde %s", self._executable)
         subprocess.Popen([str(self._executable)])
 
-        window = auto.WindowControl(searchDepth=1, ClassName=config.EXCEL_WINDOW_CLASS)
-        if not window.Exists(self._app_timeout, config.POLL_INTERVAL):
+        window = Desktop(backend="uia").window(class_name=config.EXCEL_WINDOW_CLASS)
+        if not window.exists(timeout=self._app_timeout, retry_interval=config.POLL_INTERVAL):
             raise ExcelNotAvailableError(
                 f"La ventana '{config.EXCEL_WINDOW_CLASS}' no aparecio en "
                 f"{self._app_timeout}s."
             )
 
         self._window = window
-        logger.info("Excel listo. Ventana activa: %r", window.Name)
+        logger.info("Excel listo. Ventana activa: %r", window.window_text())
         return window
 
-    def open_file(self) -> auto.WindowControl:
+    def open_file(self) -> WindowSpecification:
         """Inicializa Excel y despliega el cuadro de dialogo nativo "Abrir".
 
         Devuelve la ventana modal recien desplegada para que `FileExplorer`
@@ -92,7 +100,7 @@ class ExcelManager:
         logger.info("Solicitando el cuadro de dialogo 'Abrir' con %s", config.SHORTCUT_OPEN)
         return self._raise_modal_dialog(config.SHORTCUT_OPEN, "Abrir")
 
-    def save_as(self) -> auto.WindowControl:
+    def save_as(self) -> WindowSpecification:
         """Despliega el cuadro de dialogo nativo "Guardar como" (F12).
 
         Devuelve la ventana modal recien desplegada para que `FileExplorer`
@@ -110,34 +118,37 @@ class ExcelManager:
         if self._window is None:
             return
 
-        pattern = self._window.GetWindowPattern()
-        if pattern is None:
-            logger.warning("La ventana de Excel no expone WindowPattern; no se cierra.")
-            return
-
         logger.info("Cerrando Excel (%r)", self.title)
-        pattern.Close()
-        self._window.Disappears(self._dialog_timeout, config.POLL_INTERVAL)
+        self._window.close()
+        try:
+            self._window.wait_not(
+                "exists", timeout=self._dialog_timeout, retry_interval=config.POLL_INTERVAL
+            )
+        except WaitTimeoutError:
+            logger.warning("La ventana de Excel sigue abierta tras solicitar el cierre.")
         self._window = None
 
     # -- Internos -----------------------------------------------------------
 
-    def _raise_modal_dialog(self, shortcut: str, description: str) -> auto.WindowControl:
+    def _raise_modal_dialog(self, shortcut: str, description: str) -> WindowSpecification:
         """Envia un atajo global hasta que Excel despliegue una ventana modal.
 
         El reintento cubre el caso en que Excel todavia estaba inicializando y
         descarto la combinacion de teclas; la condicion de salida es la
         existencia real del dialogo, nunca una pausa arbitraria.
         """
-        dialog = self.window.WindowControl(searchDepth=1, ClassName=config.DIALOG_CLASS)
+        dialog = self.window.child_window(
+            class_name=config.DIALOG_CLASS, control_type="Window"
+        )
 
         for attempt in range(1, config.SHORTCUT_ATTEMPTS + 1):
-            self.window.SetActive(waitTime=0)
-            auto.SendKeys(shortcut, waitTime=0)
+            self.window.set_focus()
+            send_keys(shortcut)
 
-            if dialog.Exists(self._dialog_timeout, config.POLL_INTERVAL):
-                logger.info("Cuadro de dialogo desplegado: %r", dialog.Name)
-                return dialog
+            if dialog.exists(timeout=self._dialog_timeout, retry_interval=config.POLL_INTERVAL):
+                title = dialog.window_text()
+                logger.info("Cuadro de dialogo desplegado: %r", title)
+                return self._narrow_by_title(dialog, title)
 
             logger.warning(
                 "Intento %d/%d: Excel no desplego '%s'; reenviando %s.",
@@ -150,6 +161,26 @@ class ExcelManager:
         raise DialogNotRaisedError(
             f"Excel no desplego el cuadro de dialogo '{description}' tras "
             f"{config.SHORTCUT_ATTEMPTS} envios de {shortcut}."
+        )
+
+    def _narrow_by_title(
+        self, dialog: WindowSpecification, title: str
+    ) -> WindowSpecification:
+        """Reconstruye la especificacion agregando el titulo leido en ejecucion.
+
+        Una especificacion basada solo en `class_name="#32770"` deja de ser
+        univoca en cuanto Excel despliega la advertencia de sobreescritura:
+        pasan a existir dos ventanas de esa clase bajo la misma ventana padre y
+        pywinauto aborta con `ElementAmbiguousError`.
+
+        El titulo no se codifica en el programa, se observa cuando el dialogo
+        aparece, asi que el criterio sigue siendo independiente del idioma de
+        Office. Se descarta anclar al `handle` porque, al destruirse la ventana,
+        `ElementFromHandle` lanza `COMError` en lugar de reportar su ausencia y
+        romperia la espera de cierre.
+        """
+        return self.window.child_window(
+            class_name=config.DIALOG_CLASS, control_type="Window", title=title
         )
 
     @staticmethod

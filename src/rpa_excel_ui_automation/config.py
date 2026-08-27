@@ -4,6 +4,11 @@ Todos los selectores fueron obtenidos inspeccionando el arbol real de UI
 Automation de Excel (Office 16) y del explorador de archivos de Windows 11.
 Se privilegian los `AutomationId`, que son invariables al idioma de Office;
 los nombres localizados se usan solo como respaldo.
+
+Rama `impl/pywinauto`: los identificadores de control son los mismos que en
+`main` porque pertenecen al sistema operativo, no a la libreria cliente. Solo
+cambian la sintaxis de los atajos de teclado y la capa de acceso.
+Ver `docs/decision-libreria-ui.md`.
 """
 
 from pathlib import Path
@@ -49,8 +54,8 @@ EXCEL_FALLBACK_PATHS = (
     Path(r"C:\Program Files (x86)\Microsoft Office\root\Office16\EXCEL.EXE"),
 )
 
-SHORTCUT_OPEN = "{Ctrl}{F12}"
-"""Atajo global que despliega el cuadro de dialogo nativo "Abrir"."""
+SHORTCUT_OPEN = "^{F12}"
+"""Atajo global (sintaxis pywinauto) que despliega el dialogo nativo "Abrir"."""
 
 SHORTCUT_SAVE_AS = "{F12}"
 """Atajo global que despliega el cuadro de dialogo nativo "Guardar como"."""
@@ -66,8 +71,19 @@ FILE_NAME_EDIT_IDS = ("1148", "1001")
 ACCEPT_BUTTON_ID = "1"
 """`AutomationId` del boton de confirmacion (Abrir / Guardar)."""
 
-DIALOG_SEARCH_DEPTH = 8
-"""Profundidad maxima al buscar controles dentro de un dialogo."""
+ACCEPT_BUTTON_CLASS = "Button"
+"""Clase del boton de confirmacion; imprescindible para desambiguar.
+
+El explorador numera los elementos de la carpeta mostrada con `AutomationId`
+correlativos ("0", "1", "2", ...), de modo que `AutomationId="1"` tambien
+identifica al segundo archivo de la lista. Su clase es `UIItem`, no `Button`,
+asi que la pareja (AutomationId, ClassName) si es univoca. El `ControlType` no
+sirve: es `SplitButton` en "Abrir" y `Button` en "Guardar como".
+"""
+
+# La profundidad no sirve como criterio de desambiguacion en pywinauto: su
+# parametro `depth` aplana el arbol de descendientes en lugar de restringirlo a
+# los hijos directos. La unicidad se logra por `class_name` o por titulo.
 
 OVERWRITE_BUTTON_CLASS = "CCPushButton"
 """Clase de los botones del TaskDialog de confirmacion de sobreescritura."""
